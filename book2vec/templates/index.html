@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <title>What2Read</title>
+
+    <!-- Load required Bootstrap and BootstrapVue CSS -->
+    <link type="text/css" rel="stylesheet" href="//unpkg.com/bootstrap/dist/css/bootstrap.min.css" />
+    <link type="text/css" rel="stylesheet" href="//unpkg.com/bootstrap-vue@latest/dist/bootstrap-vue.min.css" />
+
+    <!-- Load polyfills to support older browsers -->
+    <script src="//polyfill.io/v3/polyfill.min.js?features=es2015%2CIntersectionObserver"
+        crossorigin="anonymous"></script>
+
+    <!-- Load Vue followed by BootstrapVue -->
+    <!--    <script src="//unpkg.com/vue@latest/dist/vue.min.js"></script>-->
+    <script src="//cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="//unpkg.com/bootstrap-vue@latest/dist/bootstrap-vue.min.js"></script>
+
+    <script src="//unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/fuse.js/3.4.6/fuse.min.js"></script>
+
+    <style>
+        .button-effect {
+            background-clip: border-box;
+            border: 1px solid rgba(0, 0, 0, 0.125);
+            border-radius: 0.25rem;
+            cursor: pointer;
+            -webkit-transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, -webkit-box-shadow 0.15s ease-in-out;
+            transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, -webkit-box-shadow 0.15s ease-in-out;
+            transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+            transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, -webkit-box-shadow 0.15s ease-in-out;
+        }
+
+        .button-effect:hover {
+            z-index: 1;
+            color: #495057;
+            text-decoration: none;
+            background-color: #f8f9fa;
+        }
+
+        .button-effect:active {
+            color: #212529;
+            background-color: #e9ecef;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <b-container class="pb-4">
+            <b-jumbotron header="Book2Vec" lead="Let me recommend you a book."></b-jumbotron>
+
+            <div class="mb-4">
+                <h4>You Might Enjoy...</h4>
+                <div class="d-flex flex-grow-1 p-3 bg-light flex-wrap rounded justify-content-around"
+                    v-if="recommended.length > 0">
+                    <h6 class="w-100 text-center">(click on a book to Google search it)</h6>
+                    <div v-for="(item, idx) in recommended" :key="idx"
+                        class="button-effect m-2 px-3 py-2 text-wrap bg-white" @click="googleBook(item)"
+                        style="width: 20%;">
+                        <div class="w-100 text-primary text-center border-bottom">[[ item.score ]]</div>
+                        <div class="d-flex flex-column justify-content-between">
+                            <h6 class="my-1">[[ item.title ]]</h6>
+                            <small class="mb-2">[[ item.author ]]</small>
+                        </div>
+                    </div>
+                </div>
+                <div v-else>...select some books below to see your recommendations.</div>
+            </div>
+
+            <div class="border-bottom mb-4 pb-2">
+                <h4>Selected Books</h4>
+                <div class="d-flex flex-grow-1 p-3 flex-wrap justify-content-around" v-if="selected.length > 0">
+                    <div v-for="(item, idx) in selected" :key="idx"
+                        class="button-effect m-2 px-3 py-2 text-wrap bg-white" style="width: 20%;"
+                        @click="toggleSuggested(item)">
+                        <div class="d-flex flex-column justify-content-between">
+                            <h6 class="my-1">[[ item.title ]]</h6>
+                            <small class="mb-2">[[ item.author ]]</small>
+                        </div>
+                    </div>
+                </div>
+                <div v-else>No books selected yet.</div>
+            </div>
+
+
+            <b-form-group horizontal :label-cols="4" description="Enter the title of a Book or Author"
+                label="What books have you enjoyed recently?">
+                <b-form-input v-model.trim="string_to_search" type="search" debounce="300"></b-form-input>
+            </b-form-group>
+
+            <p v-if="metadata_filtered.length > 0">Click on a book to select it as a book you've enjoyed.</p>
+
+            <div class="d-flex flex-wrap mb-4">
+                <div v-for="(item, idx) in metadata_filtered" :key="idx" class="button-effect mb-1 mx-2 px-2"
+                    @click="toggleSuggested(item)">
+                    <b>[[ item.title ]]</b>
+                    <p class="mb-1">[[ item.author ]]</p>
+                </div>
+            </div>
+
+
+        </b-container>
+    </div>
+
+    <!-- Start running your app -->
+    <script>
+        window.app = new Vue({
+            el: '#app',
+            delimiters: ['[[', ']]'],
+            data: {
+                string_to_search: '',
+                selected: [],
+                metadata: null,
+                recommended: [],
+                fuse_options: {
+                    shouldSort: true,
+                    threshold: 0.3,
+                    location: 0,
+                    distance: 100,
+                    maxPatternLength: 32,
+                    minMatchCharLength: 1,
+                    keys: [
+                        "title",
+                        "author"
+                    ]
+                },
+            },
+            watch: {
+                async selected() {
+                    if (this.selected.length > 0) {
+                        const data = { keys: this.selected.map(a => a.key), returnCount: 8 };
+                        const response = await axios.post('/api/get_suggested', data);
+                        this.recommended = response.data;
+                    } else {
+                        this.recommended = [];
+                    }
+                }
+            },
+            computed: {
+                metadata_filtered() {
+                    if (!this.metadata) {
+                        return []
+                    }
+                    if (!this.string_to_search) {
+                        return []
+                    }
+                    return this.fuse_obj.search(this.string_to_search).slice(0, 10);
+                },
+                fuse_obj() {
+                    if (!this.metadata) {
+                        return null;
+                    }
+                    return new Fuse(this.metadata, this.fuse_options);
+                }
+            },
+            async created() {
+                try {
+                    const response = await axios.get('/static/vocab.json');
+                    const metadata = response.data;
+                    this.metadata = Object.keys(metadata).map(i => (
+                        { key: i, title: metadata[i][0], author: metadata[i][1] }
+                    ))
+                } catch (error) {
+                    console.error(error);
+                }
+            },
+            methods: {
+                toggleSuggested(item) {
+                    const index = this.selected.indexOf(item);
+                    if (index > -1) {
+                        this.selected.splice(index, 1);
+                    } else {
+                        this.selected.push(item)
+                    }
+                },
+                googleBook(item) {
+                    let title = item.title
+                    if (item.title.includes("(")) {
+                        title = item.title.split("(")[0]
+                    }
+                    window.open("https://www.google.com/search?q=" + encodeURI(item.author + " " + title + " book"), "_blank")
+                }
+            }
+        })
+    </script>
+</body>
+
+</html>

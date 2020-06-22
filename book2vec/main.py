@@ -5,7 +5,10 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.routing import Route, Mount
 from pathlib import Path
-from book2vec import core
+from book2vec import core, utils
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 embeddings_path = Path("./book2vec/models/embeddings.json")
@@ -13,9 +16,9 @@ try:
     with embeddings_path.open() as file_obj:
         analysis = core.Book2VecAnalysis(file_obj)
 except FileNotFoundError:
-    raise FileNotFoundError(
-        f"Unable to find an 'embeddings.json' file at {embeddings_path.absolute()}"
-    )
+    logger.error(f"Unable to find an 'embeddings.json' file at {embeddings_path.absolute()}")
+    logger.info("Trying to download model files.")
+    utils.download_required_files()
 
 
 templates = Jinja2Templates(directory="./book2vec/templates")
